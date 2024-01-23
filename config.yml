@@ -1,0 +1,9 @@
+config: ./config.yml
+data_dir: ./data/medical
+model_dir: ./results
+batch_size: 8
+max_epoch: 150
+save_interval: 5
+output_dir: ./predictions
+transform: BaseTransform
+exp_name: Test
