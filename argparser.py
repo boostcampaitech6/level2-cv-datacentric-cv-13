@@ -29,6 +29,8 @@ class Parser(object):
         self.parser.add_argument('--transform', type=str, default="BaseTransform")
         self.parser.add_argument('--exp_name', type=str)
 
+        self.parser.add_argument('--seed', type=int, default=2024)
+
     def print_args(self, args):
         print("Arguments:")
         for arg in vars(args):
