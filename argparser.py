@@ -28,6 +28,8 @@ class Parser(object):
         self.parser.add_argument('--output_dir', type=str, default=os.environ.get('SM_OUTPUT_DATA_DIR', 'predictions'))
         self.parser.add_argument('--transform', type=str, default="BaseTransform")
         self.parser.add_argument('--exp_name', type=str)
+        self.parser.add_argument('--optimizer', type=str)
+        self.parser.add_argument('--optim_hparams', type=dict)
 
         self.parser.add_argument('--seed', type=int, default=2024)
 

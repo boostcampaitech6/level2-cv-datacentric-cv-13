@@ -21,15 +21,18 @@ from argparser import Parser
 from augmentation import BaseTransform
 from importlib import import_module
 from logger import WeightAndBiasLogger
+from optimizer import CustomOptimizer
 
 import random
 import numpy as np
 
-def do_training(args, config, data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, ignore_tags, output_dir, transform, exp_name, seed):
 
+def do_training(
+    args, config, data_dir, model_dir, device, image_size, input_size, 
+    num_workers, batch_size, learning_rate, max_epoch, save_interval, 
+    ignore_tags, output_dir, transform, exp_name, seed, optimizer, optim_hparams
+):
     wb_logger = WeightAndBiasLogger(args, exp_name)
-
     transform = getattr(import_module("augmentation"), transform)
 
     dataset = SceneTextDataset(
@@ -52,7 +55,7 @@ def do_training(args, config, data_dir, model_dir, device, image_size, input_siz
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = CustomOptimizer(optim_hparams)(model, optimizer)
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
     model.train()
