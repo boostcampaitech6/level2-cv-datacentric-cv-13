@@ -7,4 +7,28 @@ save_interval: 5
 seed: 2024
 output_dir: ./predictions
 transform: BaseTransform
-exp_name: Test
+exp_name: T6030-AdamW
+optimizer: AdamW
+
+optim_hparams:
+  SGD:
+    lr: 0.005
+    momentum: 0.9
+    weight_decay: 0.0005
+  Adam:
+    lr: 0.0001
+    beta1: 0.9
+    beta2: 0.999
+    eps: 0.00000001
+    weight_decay: 0
+  AdamW:
+    lr: 0.0001
+    beta1: 0.9
+    beta2: 0.999
+    eps: 0.00000001
+    weight_decay: 0.01
+  Lion:
+    lr: 0.0001
+    beta1: 0.95
+    beta2: 0.98
+    weight_decay: 0.01
