@@ -6,6 +6,9 @@ baseline/
 code/
 pths/
 
+# exclude vis results
+eda/vis_res/
+
 # exclude .files
 .cache/
 .config/

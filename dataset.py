@@ -353,6 +353,7 @@ class SceneTextDataset(Dataset):
 
         self.image_size, self.crop_size = image_size, crop_size
         self.transform = transform()
+        self.transform.set_transform()
 
         self.ignore_tags = ignore_tags
 
@@ -399,7 +400,6 @@ class SceneTextDataset(Dataset):
             image = image.convert('RGB')
         image = np.array(image)
 
-        self.transform.set_transform()
         image = self.transform.get_transform()(image=image)['image']
         word_bboxes = np.reshape(vertices, (-1, 4, 2))
         roi_mask = generate_roi_mask(image, vertices, labels)
