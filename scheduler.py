@@ -6,13 +6,13 @@ class CustomScheduler:
         
     def __call__(self, optimizer, max_epochs, method: str):
         _cfg = self.cfg[method]
-        if method == "plateau":
-            return lr_scheduler.ReduceLROnPlateau(
+        if method == "cyclic":
+            return lr_scheduler.CyclicLR(
                 optimizer, 
+                base_lr=_cfg['base_lr'],
+                max_lr=_cfg['max_lr'],
                 mode=_cfg['mode'],
-                factor=_cfg['factor'],
-                patience=_cfg['patience'],
-                min_lr=_cfg['min_lr']
+                gamma=_cfg['gamma'],
             )
         elif method == "cosine":
             return lr_scheduler.CosineAnnealingLR(
