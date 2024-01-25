@@ -7,8 +7,8 @@ save_interval: 5
 seed: 2024
 output_dir: ./predictions
 transform: BaseTransform
-exp_name: T6106-Cosine-AdamW
-optimizer: AdamW
+exp_name: Test
+optimizer: SGD
 
 optim_hparams:
   SGD:
@@ -33,14 +33,14 @@ optim_hparams:
     beta2: 0.98
     weight_decay: 0.01
 
-scheduler: cosine
+scheduler: step
 
 sched_hparams:
-  plateau:
-    mode: min
-    factor: 0.1
-    patience: 10
-    min_lr: 0
+  cyclic:
+    base_lr: 0.0001
+    max_lr: 0.01
+    mode: triangular
+    gamma: 1.0
   cosine:
     eta_min: 0
   step:
