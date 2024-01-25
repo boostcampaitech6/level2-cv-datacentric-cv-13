@@ -24,6 +24,8 @@ from importlib import import_module
 from logger import WeightAndBiasLogger
 from optimizer import CustomOptimizer
 from scheduler import CustomScheduler
+from detect import get_bboxes
+from deteval import calc_deteval_metrics
 
 import random
 import numpy as np
@@ -35,7 +37,7 @@ def do_training(
     ignore_tags, output_dir, transform, exp_name, seed, optimizer, optim_hparams, 
     scheduler, sched_hparams,
 ):
-    # wb_logger = WeightAndBiasLogger(args, exp_name)
+    wb_logger = WeightAndBiasLogger(args, exp_name)
     transform = getattr(import_module("augmentation"), transform)
 
     image_fnames = sorted(os.listdir(os.path.join(data_dir, 'img/train')))
@@ -128,6 +130,11 @@ def do_training(
                     loss_val = loss.item()
                     val_epoch_loss += loss_val
 
+                    # 실행되지 않습니다!
+                    # pred_bbox = get_bboxes(extra_info['score_map'], extra_info['geo_map'])
+                    # gt_bbox = get_bboxes(gt_score_map, gt_geo_map)
+                    # result = calc_deteval_metrics(pred_bbox, gt_bbox)
+
                     pbar.update(1)
                     val_dict = {
                         'Cls loss': extra_info['cls_loss'], 'Angle loss': extra_info['angle_loss'],
@@ -140,6 +147,9 @@ def do_training(
                 {
                     "Train Loss": epoch_loss / num_train_batches,
                     "Val Loss": val_epoch_loss / num_val_batches,
+                    # "Hmean": result['total']['hmean'],
+                    # "Precision": result['total']['precision'],
+                    # "Recall": result['total']['recall'],
                 }
             )
 
