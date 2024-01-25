@@ -119,8 +119,8 @@ def convert_coco_to_ufo_format(coco_input_path: str, coco_output_path: str):
                 "orientation": "Horizontal",
                 'tags': [tag],
                 "illegibility": False,
-                "language": "",
-                "confidence": ""
+                "language": None,
+                "confidence": None
             }
             annot_id += 1
 
