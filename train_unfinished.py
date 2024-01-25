@@ -16,7 +16,7 @@ import wandb
 from sklearn.model_selection import train_test_split
 
 from east_dataset import EASTDataset
-from dataset import SceneTextDataset, ValSceneTextDataset
+from dataset_unfinished import SceneTextDataset, ValSceneTextDataset
 from model import EAST
 from argparser import Parser
 from augmentation import BaseTransform
