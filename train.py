@@ -22,6 +22,7 @@ from augmentation import BaseTransform
 from importlib import import_module
 from logger import WeightAndBiasLogger
 from optimizer import CustomOptimizer
+from scheduler import CustomScheduler
 
 import random
 import numpy as np
@@ -30,7 +31,8 @@ import numpy as np
 def do_training(
     args, config, data_dir, model_dir, device, image_size, input_size, 
     num_workers, batch_size, learning_rate, max_epoch, save_interval, 
-    ignore_tags, output_dir, transform, exp_name, seed, optimizer, optim_hparams
+    ignore_tags, output_dir, transform, exp_name, seed, optimizer, optim_hparams, 
+    scheduler, sched_hparams,
 ):
     wb_logger = WeightAndBiasLogger(args, exp_name)
     transform = getattr(import_module("augmentation"), transform)
@@ -56,7 +58,7 @@ def do_training(
     model = EAST()
     model.to(device)
     optimizer = CustomOptimizer(optim_hparams)(model, optimizer)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
+    scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
 
     model.train()
     for epoch in range(max_epoch):

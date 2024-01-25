@@ -7,7 +7,7 @@ save_interval: 5
 seed: 2024
 output_dir: ./predictions
 transform: BaseTransform
-exp_name: T6030-AdamW
+exp_name: T6106-Cosine-AdamW
 optimizer: AdamW
 
 optim_hparams:
@@ -32,3 +32,16 @@ optim_hparams:
     beta1: 0.95
     beta2: 0.98
     weight_decay: 0.01
+
+scheduler: cosine
+
+sched_hparams:
+  plateau:
+    mode: min
+    factor: 0.1
+    patience: 10
+    min_lr: 0
+  cosine:
+    eta_min: 0
+  step:
+    gamma: 0.1
