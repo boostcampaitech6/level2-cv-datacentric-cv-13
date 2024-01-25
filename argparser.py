@@ -30,6 +30,8 @@ class Parser(object):
         self.parser.add_argument('--exp_name', type=str)
         self.parser.add_argument('--optimizer', type=str)
         self.parser.add_argument('--optim_hparams', type=dict)
+        self.parser.add_argument('--scheduler', type=str)
+        self.parser.add_argument('--sched_hparams', type=dict)
 
         self.parser.add_argument('--seed', type=int, default=2024)
 

@@ -11,8 +11,8 @@ class BaseTransform:
         return transform
     
     def set_transform(self):
-        self.funcs.append(A.RandomBrightnessContrast(p=0.3))
-        self.funcs.append(A.HueSaturationValue(p=0.3))
+        # self.funcs.append(A.RandomBrightnessContrast(p=0.3))
+        # self.funcs.append(A.HueSaturationValue(p=0.3))
         
         #base transform
         self.funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
