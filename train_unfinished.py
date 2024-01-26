@@ -10,9 +10,9 @@ from torch import cuda
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from tqdm import tqdm
+from PIL import Image, ImageDraw
 
 import yaml
-import wandb
 from sklearn.model_selection import train_test_split
 
 from east_dataset import EASTDataset
@@ -29,6 +29,7 @@ from deteval import calc_deteval_metrics
 
 import random
 import numpy as np
+import wandb
 
 
 def do_training(
@@ -89,6 +90,8 @@ def do_training(
     model.train()
     for epoch in range(max_epoch):
         val_epoch_loss, epoch_loss, epoch_start = 0, 0, time.time()
+        f1, precision, recall = 0, 0, 0
+        
         with tqdm(total=num_train_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
                 pbar.set_description('[Epoch {}]'.format(epoch + 1))
@@ -117,7 +120,7 @@ def do_training(
             if not osp.exists(model_dir):
                 os.makedirs(model_dir)
 
-            ckpt_fpath = osp.join(model_dir, 'latest.pth')
+            ckpt_fpath = osp.join(model_dir, f'epoch_{epoch}.pth')
             torch.save(model.state_dict(), ckpt_fpath)
         
         with tqdm(total=num_val_batches) as pbar:
@@ -126,30 +129,75 @@ def do_training(
                     pbar.set_description('[Validation Epoch {}]'.format(epoch + 1))
 
                     loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-
                     loss_val = loss.item()
                     val_epoch_loss += loss_val
 
-                    # 실행되지 않습니다!
-                    # pred_bbox = get_bboxes(extra_info['score_map'], extra_info['geo_map'])
-                    # gt_bbox = get_bboxes(gt_score_map, gt_geo_map)
-                    # result = calc_deteval_metrics(pred_bbox, gt_bbox)
-
+                    pred_bbox_dict, gt_bbox_dict = {}, {}
+                
+                    for i in range(len(gt_score_map)):
+                        pred_bbox = get_bboxes(
+                            extra_info['score_map'][i].detach().cpu().numpy(), 
+                            extra_info['geo_map'][i].detach().cpu().numpy()
+                        )
+                        gt_bbox = get_bboxes(
+                            gt_score_map[i].detach().cpu().numpy(), 
+                            gt_geo_map[i].detach().cpu().numpy()
+                        )
+                        pred_bbox = pred_bbox[:, :8].reshape(-1, 4, 2)
+                        gt_bbox = gt_bbox[:, :8].reshape(-1, 4, 2)
+                        pred_bbox_dict[i] = pred_bbox
+                        gt_bbox_dict[i] = gt_bbox
+                    
+                    metric = calc_deteval_metrics(pred_bbox_dict, gt_bbox_dict)
+                    f1 += metric['total']['hmean']
+                    precision += metric['total']['precision']
+                    recall += metric['total']['recall']
+                    
+                    _img = img[i].detach().cpu().numpy()
+                    _img = np.transpose(_img, (1, 2, 0))
+                    _img = _img * 255
+                    _img = _img.astype(np.uint8)
+                    _gt_pil_img = Image.fromarray(_img)        
+                    _pred_pil_img = Image.fromarray(_img)
+                    
+                    gt_box = metric['per_sample'][i]['gt_bboxes']
+                    pred_box = metric['per_sample'][i]['det_bboxes']
+                    
+                    gt_draw = ImageDraw.Draw(_gt_pil_img)
+                    pred_draw = ImageDraw.Draw(_pred_pil_img)
+                    
+                    for box in gt_box:
+                        box = np.array(box).astype(np.int32).tolist()
+                        gt_draw.rectangle(box, outline=(255, 0, 0))
+                    for box in pred_box:
+                        box = np.array(box).astype(np.int32).tolist()
+                        pred_draw.rectangle(box, outline=(0, 255, 0))
+                        
+                    _gt_pil_img.save(f'./gt_{i}.jpg')
+                    _pred_pil_img.save(f'./pred_{i}.jpg')
+                    
+                    wb_logger.log(
+                        {
+                            "GT": [wandb.Image(_gt_pil_img, caption="GT")],
+                            "Pred": [wandb.Image(_pred_pil_img, caption="Pred")],
+                        }
+                    )
+                    
                     pbar.update(1)
                     val_dict = {
                         'Cls loss': extra_info['cls_loss'], 'Angle loss': extra_info['angle_loss'],
-                        'IoU loss': extra_info['iou_loss']
+                        'IoU loss': extra_info['iou_loss'], 'Precision': metric['total']['precision'],
+                        "Recall": metric['total']['recall'], "F1": metric['total']['hmean']
                     }
                     pbar.set_postfix(val_dict)
-
 
         wb_logger.log(
                 {
                     "Train Loss": epoch_loss / num_train_batches,
                     "Val Loss": val_epoch_loss / num_val_batches,
-                    # "Hmean": result['total']['hmean'],
-                    # "Precision": result['total']['precision'],
-                    # "Recall": result['total']['recall'],
+                    "F1_score": f1 / num_val_batches,
+                    "Precision": precision / num_val_batches,
+                    "Recall": recall / num_val_batches,
                 }
             )
 
