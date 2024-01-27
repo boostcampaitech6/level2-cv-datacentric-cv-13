@@ -45,7 +45,7 @@ def do_inference(model, ckpt_fpath, data_dir, input_size, batch_size, split='tes
     return ufo_result
 
 
-def main(args):
+def inference_main(args, epoch):
     # Initialize model
     model = EAST(pretrained=False).to(args.device)
 
@@ -62,7 +62,7 @@ def main(args):
                                 args.batch_size, split='test')
     ufo_result['images'].update(split_result['images'])
 
-    output_fname = 'output.csv'
+    output_fname = f'output_{epoch}.csv'
     with open(osp.join(args.output_dir, output_fname), 'w') as f:
         json.dump(ufo_result, f, indent=4)
 
@@ -91,4 +91,4 @@ if __name__ == '__main__':
     if args.input_size % 32 != 0:
         raise ValueError('`input_size` must be a multiple of 32')
 
-    main(args)
+    inference_main(args)

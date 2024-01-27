@@ -1,4 +1,6 @@
 import os
+import sys
+import json
 import os.path as osp
 import time
 import math
@@ -16,7 +18,7 @@ import yaml
 from sklearn.model_selection import train_test_split
 
 from east_dataset import EASTDataset
-from dataset_unfinished import SceneTextDataset, ValSceneTextDataset
+from dataset_unfinished import SceneTextDataset
 from model import EAST
 from argparser import Parser
 from augmentation import BaseTransform
@@ -26,6 +28,7 @@ from optimizer import CustomOptimizer
 from scheduler import CustomScheduler
 from detect import get_bboxes
 from deteval import calc_deteval_metrics
+from inference import inference_main
 
 import random
 import numpy as np
@@ -41,21 +44,35 @@ def do_training(
     wb_logger = WeightAndBiasLogger(args, exp_name)
     transform = getattr(import_module("augmentation"), transform)
 
-    image_fnames = sorted(os.listdir(os.path.join(data_dir, 'img/train')))
-    train_fnames, val_fnames = train_test_split(image_fnames, test_size=0.2, random_state=seed)
-
+    try:
+        assert osp.isfile("data/medical/ufo/new_train.json") is True
+        assert osp.isfile("data/medical/ufo/new_valid.json") is True
+    except:
+        image_fnames = sorted(os.listdir(os.path.join(data_dir, 'img/train')))
+        train_fnames, val_fnames = train_test_split(image_fnames, test_size=0.2, random_state=seed)
+        
+        with open("data/medical/ufo/train.json", "r") as f:
+            train_json = json.load(f)
+        
+        new_train_json = [x for x in train_json['images'].items() if x[0] in train_fnames]    
+        new_valid_json = [x for x in train_json['images'].items() if x[0] in val_fnames]
+        new_train_json = {"images": dict(new_train_json)}
+        new_valid_json = {"images": dict(new_valid_json)}
+        
+        with open("data/medical/ufo/new_train.json", "w") as f:
+            json.dump(new_train_json, f)
+        with open("data/medical/ufo/new_valid.json", "w") as f:
+            json.dump(new_valid_json, f)
+        
     train_dataset = SceneTextDataset(
-        train_fnames,
         data_dir,
-        split='train',
+        split='valid',
         image_size=image_size,
         crop_size=input_size,
         ignore_tags=ignore_tags,
         transform = transform
     )
-    
     train_dataset = EASTDataset(train_dataset)
-
     num_train_batches = math.ceil(len(train_dataset) / batch_size)
     train_loader = DataLoader(
         train_dataset,
@@ -64,10 +81,9 @@ def do_training(
         num_workers=num_workers
     )
 
-    val_dataset = ValSceneTextDataset(
-        val_fnames,
+    val_dataset = SceneTextDataset(
         data_dir,
-        split='train',
+        split='valid',
         image_size=image_size,
         crop_size=input_size,
         ignore_tags=ignore_tags,
@@ -85,8 +101,8 @@ def do_training(
     model = EAST()
     model.to(device)
     optimizer = CustomOptimizer(optim_hparams)(model, optimizer)
-    scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
-
+    # scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
+    
     model.train()
     for epoch in range(max_epoch):
         val_epoch_loss, epoch_loss, epoch_start = 0, 0, time.time()
@@ -95,33 +111,32 @@ def do_training(
         with tqdm(total=num_train_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
                 pbar.set_description('[Epoch {}]'.format(epoch + 1))
-
-                loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
+                
                 optimizer.zero_grad()
+                loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
                 loss.backward()
                 optimizer.step()
-
-                loss_val = loss.item()
-                epoch_loss += loss_val
+                epoch_loss += loss.item()
 
                 pbar.update(1)
-                val_dict = {
-                    'Cls loss': extra_info['cls_loss'], 'Angle loss': extra_info['angle_loss'],
-                    'IoU loss': extra_info['iou_loss']
+                train_dict = {
+                    'Train Cls loss': extra_info['cls_loss'], 'Train Angle loss': extra_info['angle_loss'],
+                    'Train IoU loss': extra_info['iou_loss']
                 }
-                pbar.set_postfix(val_dict)
+                pbar.set_postfix(train_dict)
 
-        scheduler.step()
+        # scheduler.step()
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_train_batches, timedelta(seconds=time.time() - epoch_start)))
 
-        if (epoch + 1) % save_interval == 0:
-            if not osp.exists(model_dir):
-                os.makedirs(model_dir)
+        # if (epoch + 1) % save_interval == 0:
+        if not osp.exists(model_dir):
+            os.makedirs(model_dir)
 
-            ckpt_fpath = osp.join(model_dir, f'epoch_{epoch}.pth')
-            torch.save(model.state_dict(), ckpt_fpath)
+        ckpt_fpath = osp.join(model_dir, f'epoch_{epoch}.pth')
+        torch.save(model.state_dict(), ckpt_fpath)
+        torch.save(model.state_dict(), osp.join(model_dir,"latest.pth"))
         
         with tqdm(total=num_val_batches) as pbar:
             with torch.no_grad():
@@ -129,9 +144,8 @@ def do_training(
                     pbar.set_description('[Validation Epoch {}]'.format(epoch + 1))
 
                     loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-                    loss_val = loss.item()
-                    val_epoch_loss += loss_val
-
+                        
+                    val_epoch_loss += loss.item()
                     pred_bbox_dict, gt_bbox_dict = {}, {}
                 
                     for i in range(len(gt_score_map)):
@@ -153,15 +167,15 @@ def do_training(
                     precision += metric['total']['precision']
                     recall += metric['total']['recall']
                     
-                    _img = img[i].detach().cpu().numpy()
+                    _img = img[0].detach().cpu().numpy()
                     _img = np.transpose(_img, (1, 2, 0))
                     _img = _img * 255
                     _img = _img.astype(np.uint8)
                     _gt_pil_img = Image.fromarray(_img)        
                     _pred_pil_img = Image.fromarray(_img)
                     
-                    gt_box = metric['per_sample'][i]['gt_bboxes']
-                    pred_box = metric['per_sample'][i]['det_bboxes']
+                    gt_box = metric['per_sample'][0]['gt_bboxes']
+                    pred_box = metric['per_sample'][0]['det_bboxes']
                     
                     gt_draw = ImageDraw.Draw(_gt_pil_img)
                     pred_draw = ImageDraw.Draw(_pred_pil_img)
@@ -173,8 +187,8 @@ def do_training(
                         box = np.array(box).astype(np.int32).tolist()
                         pred_draw.rectangle(box, outline=(0, 255, 0))
                         
-                    _gt_pil_img.save(f'./gt_{i}.jpg')
-                    _pred_pil_img.save(f'./pred_{i}.jpg')
+                    _gt_pil_img.save(f'./gt.jpg')
+                    _pred_pil_img.save(f'./pred.jpg')
                     
                     wb_logger.log(
                         {
@@ -185,9 +199,8 @@ def do_training(
                     
                     pbar.update(1)
                     val_dict = {
-                        'Cls loss': extra_info['cls_loss'], 'Angle loss': extra_info['angle_loss'],
-                        'IoU loss': extra_info['iou_loss'], 'Precision': metric['total']['precision'],
-                        "Recall": metric['total']['recall'], "F1": metric['total']['hmean']
+                        'Valid Cls loss': extra_info['cls_loss'], 'Valid Angle loss': extra_info['angle_loss'],
+                        'Valid IoU loss': extra_info['iou_loss'],
                     }
                     pbar.set_postfix(val_dict)
 
@@ -200,6 +213,9 @@ def do_training(
                     "Recall": recall / num_val_batches,
                 }
             )
+        
+        if (epoch+1)%5 == 0:
+            inference_main(args, epoch)
 
 
 def main(args):

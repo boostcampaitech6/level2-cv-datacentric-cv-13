@@ -338,7 +338,7 @@ def filter_vertices(vertices, labels, ignore_under=0, drop_under=0):
 
 
 class SceneTextDataset(Dataset):
-    def __init__(self, fnames, data_dir,
+    def __init__(self, data_dir,
                  split='train',
                  image_size=2048,
                  crop_size=1024,
@@ -346,20 +346,21 @@ class SceneTextDataset(Dataset):
                  ignore_under_threshold=10,
                  drop_under_threshold=1,
                  transform = BaseTransform):
-        with open(osp.join(data_dir, 'ufo/{}.json'.format(split)), 'r') as f:
+        with open(osp.join(data_dir, 'ufo/new_{}.json'.format(split)), 'r') as f:
             anno = json.load(f)
 
         self.anno = anno
-        self.image_fnames = fnames
-        self.image_dir = osp.join(data_dir, 'img', split)
-        # self.image_fnames = sorted(os.listdir(self.image_dir))
+        self.image_fnames = sorted(anno['images'].keys())
+        self.image_dir = osp.join(data_dir, 'img', "train")
 
         self.image_size, self.crop_size = image_size, crop_size
         self.transform = transform()
-        self.transform.set_transform()
+        if split == 'train':
+            self.transform.set_train_transform()
+        else:
+            self.transform.set_valid_transform()
 
         self.ignore_tags = ignore_tags
-
         self.drop_under_threshold = drop_under_threshold
         self.ignore_under_threshold = ignore_under_threshold
 
@@ -404,74 +405,6 @@ class SceneTextDataset(Dataset):
         image = np.array(image)
 
         image = self.transform.get_transform()(image=image)['image']
-        word_bboxes = np.reshape(vertices, (-1, 4, 2))
-        roi_mask = generate_roi_mask(image, vertices, labels)
-
-        return image, word_bboxes, roi_mask
-
-
-class ValSceneTextDataset(Dataset):
-    def __init__(self, fnames, data_dir,
-                 split='train',
-                 image_size=2048,
-                 crop_size=1024,
-                 ignore_tags=[],
-                 ignore_under_threshold=10,
-                 drop_under_threshold=1,
-                 ):
-        with open(osp.join(data_dir, 'ufo/{}.json'.format(split)), 'r') as f:
-            anno = json.load(f)
-
-        self.anno = anno
-        self.image_fnames = fnames
-        self.image_dir = osp.join(data_dir, 'img', split)
-        # self.image_fnames = sorted(os.listdir(self.image_dir))
-
-        self.image_size, self.crop_size = image_size, crop_size
-
-        self.ignore_tags = ignore_tags
-
-        self.drop_under_threshold = drop_under_threshold
-        self.ignore_under_threshold = ignore_under_threshold
-
-    def __len__(self):
-        return len(self.image_fnames)
-
-    def __getitem__(self, idx):
-        image_fname = self.image_fnames[idx]
-        image_fpath = osp.join(self.image_dir, image_fname)
-
-        vertices, labels = [], []
-        for word_info in self.anno['images'][image_fname]['words'].values():
-            word_tags = word_info['tags']
-
-            ignore_sample = any(elem for elem in word_tags if elem in self.ignore_tags)
-            num_pts = np.array(word_info['points']).shape[0]
-
-            # skip samples with ignore tag and
-            # samples with number of points greater than 4
-            if ignore_sample or num_pts > 4:
-                continue
-
-            vertices.append(np.array(word_info['points']).flatten())
-            labels.append(int(not word_info['illegibility']))
-        vertices, labels = np.array(vertices, dtype=np.float32), np.array(labels, dtype=np.int64)
-
-        vertices, labels = filter_vertices(
-            vertices,
-            labels,
-            ignore_under=self.ignore_under_threshold,
-            drop_under=self.drop_under_threshold
-        )
-
-        image = Image.open(image_fpath)
-        image, vertices = resize_img(image, vertices, self.image_size)
-        image, vertices = crop_img(image, vertices, labels, self.crop_size)
-
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        image = np.array(image)
-
         word_bboxes = np.reshape(vertices, (-1, 4, 2))
         roi_mask = generate_roi_mask(image, vertices, labels)
 
