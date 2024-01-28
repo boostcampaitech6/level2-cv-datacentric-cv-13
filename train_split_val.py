@@ -94,8 +94,8 @@ def do_training(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
 
         if (epoch + 1) % save_interval == 0:
-            if not osp.exists(model_dir, exp_name):
-                os.makedirs(model_dir, exp_name)
+            if not osp.exists(osp.join(model_dir, exp_name)):
+                os.makedirs(osp.join(model_dir, exp_name))
 
             ckpt_fpath = osp.join(model_dir, exp_name, 'latest.pth')
             torch.save(model.state_dict(), ckpt_fpath)
