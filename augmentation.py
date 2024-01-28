@@ -10,12 +10,19 @@ class BaseTransform:
         transform = A.Compose(self.funcs)
         return transform
     
+    def set_transform(self):
+        self.funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+        self.funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))   
+        
     def set_train_transform(self):
         # self.funcs.append(A.RandomBrightnessContrast(p=0.3))
         # self.funcs.append(A.HueSaturationValue(p=0.3))
         
         #base transform
         self.funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+        self.funcs.append(A.CLAHE()),
+        self.funcs.append(A.ChannelShuffle(p=0.5))
+        self.funcs.append(A.MotionBlur(p=0.5))
         self.funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))   
 
     def set_valid_transform(self):
