@@ -105,16 +105,11 @@ def do_training(
     
     model.train()
     for epoch in range(max_epoch):
-        train_epoch_loss, train_cls_loss, train_angle_loss, train_iou_loss = 0, 0, 0, 0
-        valid_epoch_loss, valid_cls_loss, valid_angle_loss, valid_iou_loss = 0, 0, 0, 0
+        train_epoch_loss, valid_epoch_loss= 0, 0
         f1, precision, recall = 0, 0, 0
         
         for _, (img, gt_score_map, gt_geo_map, roi_mask) in tqdm(enumerate(train_loader)):
-            img = img.to(device)
-            gt_score_map = gt_score_map.to(device)
-            gt_geo_map = gt_geo_map.to(device)
-            roi_mask = roi_mask.to(device)
-            
+            optimizer.zero_grad()
             loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
             loss.backward()
             optimizer.step()
@@ -135,21 +130,11 @@ def do_training(
         torch.save(model.state_dict(), ckpt_fpath)
         torch.save(model.state_dict(), osp.join(model_dir,"latest.pth"))
         
-        gt_imgs, pred_imgs = [], []
-        
-        for _, (img, gt_score_map, gt_geo_map, roi_mask) in tqdm(enumerate(val_loader)):
-            img = img.to(device)
-            gt_score_map = gt_score_map.to(device)
-            gt_geo_map = gt_geo_map.to(device)
-            roi_mask = roi_mask.to(device)
+        for _, (img, gt_score_map, gt_geo_map, roi_mask) in tqdm(enumerate(val_loader)):           
+            with torch.no_grad():
+                loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
             
-            loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-            
-            valid_epoch_loss += loss.item()
-            valid_cls_loss += extra_info['cls_loss']
-            valid_angle_loss += extra_info['angle_loss']
-            valid_iou_loss += extra_info['iou_loss']
-            
+            valid_epoch_loss += loss.item()            
             pred_bbox_dict, gt_bbox_dict = {}, {}
             
             for i in range(len(gt_score_map)):
@@ -192,16 +177,14 @@ def do_training(
                 pred_draw.rectangle(box, outline=(0, 255, 0))
                 
             _gt_pil_img.save(f'./gt.jpg')
-            _pred_pil_img.save(f'./pred.jpg')
-            
-            gt_imgs.append(_gt_pil_img)
-            pred_imgs.append(_pred_pil_img)
-            
+            _pred_pil_img.save(f'./pred.jpg')            
             wb_logger.log(
                 {
                     "valid_cls_loss": extra_info['cls_loss'],
                     "valid_angle_loss": extra_info['angle_loss'],
                     "valid_iou_loss": extra_info['iou_loss'],
+                    "gt_img": wandb.Image(_gt_pil_img, caption="GT"),
+                    "pred_img": wandb.Image(_pred_pil_img, caption="Pred"),
                 }
             )
 
@@ -212,8 +195,6 @@ def do_training(
                 "F1_score": f1 / num_val_batches,
                 "Precision": precision / num_val_batches,
                 "Recall": recall / num_val_batches,
-                "GT_imgs": [wandb.Image(x, caption="GT") for x in gt_imgs],
-                "Pred_imgs": [wandb.Image(x, caption="Pred") for x in pred_imgs],
             }
         )
     

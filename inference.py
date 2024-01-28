@@ -45,13 +45,36 @@ def do_inference(model, ckpt_fpath, data_dir, input_size, batch_size, split='tes
     return ufo_result
 
 
+def inference(args):
+    # Initialize model
+    # model = EAST(pretrained=False).to(args.device)
+    model = EAST(pretrained=False).to('cuda')
+
+    # Get paths to checkpoint files
+    ckpt_fpath = osp.join(args.model_dir, 'latest.pth')
+
+    if not osp.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    print('Inference in progress')
+
+    ufo_result = dict(images=dict())
+    split_result = do_inference(model, ckpt_fpath, args.data_dir, args.input_size,
+                                args.batch_size, split='test')
+    ufo_result['images'].update(split_result['images'])
+
+    output_fname = f'output.csv'
+    with open(osp.join(args.output_dir, output_fname), 'w') as f:
+        json.dump(ufo_result, f, indent=4)
+
+
 def inference_main(args, epoch):
     # Initialize model
     # model = EAST(pretrained=False).to(args.device)
-    model = EAST(pretrained=False).to('cuda:1')
+    model = EAST(pretrained=False).to('cuda')
 
     # Get paths to checkpoint files
-    ckpt_fpath = osp.join(args.model_dir, 'epoch_73.pth')
+    ckpt_fpath = osp.join(args.model_dir, 'latest.pth')
 
     if not osp.exists(args.output_dir):
         os.makedirs(args.output_dir)
@@ -92,4 +115,5 @@ if __name__ == '__main__':
     if args.input_size % 32 != 0:
         raise ValueError('`input_size` must be a multiple of 32')
 
+    inference(args)
     inference_main(args, 73)
