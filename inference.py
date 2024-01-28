@@ -47,10 +47,11 @@ def do_inference(model, ckpt_fpath, data_dir, input_size, batch_size, split='tes
 
 def inference_main(args, epoch):
     # Initialize model
-    model = EAST(pretrained=False).to(args.device)
+    # model = EAST(pretrained=False).to(args.device)
+    model = EAST(pretrained=False).to('cuda:1')
 
     # Get paths to checkpoint files
-    ckpt_fpath = osp.join(args.model_dir, 'latest.pth')
+    ckpt_fpath = osp.join(args.model_dir, 'epoch_73.pth')
 
     if not osp.exists(args.output_dir):
         os.makedirs(args.output_dir)
@@ -91,4 +92,4 @@ if __name__ == '__main__':
     if args.input_size % 32 != 0:
         raise ValueError('`input_size` must be a multiple of 32')
 
-    inference_main(args)
+    inference_main(args, 73)

@@ -346,7 +346,7 @@ class SceneTextDataset(Dataset):
                  ignore_under_threshold=10,
                  drop_under_threshold=1,
                  transform = BaseTransform):
-        with open(osp.join(data_dir, 'ufo/new_{}.json'.format(split)), 'r') as f:
+        with open(osp.join(data_dir, 'ufo/{}.json'.format(split)), 'r') as f:
             anno = json.load(f)
 
         self.anno = anno

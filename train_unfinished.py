@@ -66,7 +66,7 @@ def do_training(
         
     train_dataset = SceneTextDataset(
         data_dir,
-        split='valid',
+        split='train',
         image_size=image_size,
         crop_size=input_size,
         ignore_tags=ignore_tags,
@@ -83,7 +83,7 @@ def do_training(
 
     val_dataset = SceneTextDataset(
         data_dir,
-        split='valid',
+        split='new_valid',
         image_size=image_size,
         crop_size=input_size,
         ignore_tags=ignore_tags,
@@ -101,36 +101,33 @@ def do_training(
     model = EAST()
     model.to(device)
     optimizer = CustomOptimizer(optim_hparams)(model, optimizer)
-    # scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
+    scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
     
     model.train()
     for epoch in range(max_epoch):
-        val_epoch_loss, epoch_loss, epoch_start = 0, 0, time.time()
+        train_epoch_loss, train_cls_loss, train_angle_loss, train_iou_loss = 0, 0, 0, 0
+        valid_epoch_loss, valid_cls_loss, valid_angle_loss, valid_iou_loss = 0, 0, 0, 0
         f1, precision, recall = 0, 0, 0
         
-        with tqdm(total=num_train_batches) as pbar:
-            for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
-                pbar.set_description('[Epoch {}]'.format(epoch + 1))
-                
-                optimizer.zero_grad()
-                loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-                loss.backward()
-                optimizer.step()
-                epoch_loss += loss.item()
-
-                pbar.update(1)
-                train_dict = {
-                    'Train Cls loss': extra_info['cls_loss'], 'Train Angle loss': extra_info['angle_loss'],
-                    'Train IoU loss': extra_info['iou_loss']
+        for _, (img, gt_score_map, gt_geo_map, roi_mask) in tqdm(enumerate(train_loader)):
+            img = img.to(device)
+            gt_score_map = gt_score_map.to(device)
+            gt_geo_map = gt_geo_map.to(device)
+            roi_mask = roi_mask.to(device)
+            
+            loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
+            loss.backward()
+            optimizer.step()
+            
+            train_epoch_loss += loss.item()
+            wb_logger.log(
+                {
+                    "train_cls_loss": extra_info['cls_loss'],
+                    "train_angle_loss": extra_info['angle_loss'],
+                    "train_iou_loss": extra_info['iou_loss'],
                 }
-                pbar.set_postfix(train_dict)
-
-        # scheduler.step()
-
-        print('Mean loss: {:.4f} | Elapsed time: {}'.format(
-            epoch_loss / num_train_batches, timedelta(seconds=time.time() - epoch_start)))
-
-        # if (epoch + 1) % save_interval == 0:
+            )
+        
         if not osp.exists(model_dir):
             os.makedirs(model_dir)
 
@@ -138,82 +135,88 @@ def do_training(
         torch.save(model.state_dict(), ckpt_fpath)
         torch.save(model.state_dict(), osp.join(model_dir,"latest.pth"))
         
-        with tqdm(total=num_val_batches) as pbar:
-            with torch.no_grad():
-                for img, gt_score_map, gt_geo_map, roi_mask in val_loader:
-                    pbar.set_description('[Validation Epoch {}]'.format(epoch + 1))
-
-                    loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-                        
-                    val_epoch_loss += loss.item()
-                    pred_bbox_dict, gt_bbox_dict = {}, {}
+        gt_imgs, pred_imgs = [], []
+        
+        for _, (img, gt_score_map, gt_geo_map, roi_mask) in tqdm(enumerate(val_loader)):
+            img = img.to(device)
+            gt_score_map = gt_score_map.to(device)
+            gt_geo_map = gt_geo_map.to(device)
+            roi_mask = roi_mask.to(device)
+            
+            loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
+            
+            valid_epoch_loss += loss.item()
+            valid_cls_loss += extra_info['cls_loss']
+            valid_angle_loss += extra_info['angle_loss']
+            valid_iou_loss += extra_info['iou_loss']
+            
+            pred_bbox_dict, gt_bbox_dict = {}, {}
+            
+            for i in range(len(gt_score_map)):
+                pred_bbox = get_bboxes(
+                    extra_info['score_map'][i].detach().cpu().numpy(), 
+                    extra_info['geo_map'][i].detach().cpu().numpy()
+                )
+                gt_bbox = get_bboxes(
+                    gt_score_map[i].detach().cpu().numpy(), 
+                    gt_geo_map[i].detach().cpu().numpy()
+                )
+                pred_bbox = pred_bbox[:, :8].reshape(-1, 4, 2)
+                gt_bbox = gt_bbox[:, :8].reshape(-1, 4, 2)
+                pred_bbox_dict[i] = pred_bbox
+                gt_bbox_dict[i] = gt_bbox
+            
+            metric = calc_deteval_metrics(pred_bbox_dict, gt_bbox_dict)
+            f1 += metric['total']['hmean']
+            precision += metric['total']['precision']
+            recall += metric['total']['recall']
+            
+            _img = img[0].detach().cpu().numpy()
+            _img = np.transpose(_img, (1, 2, 0))
+            _img = _img * 255
+            _img = _img.astype(np.uint8)
+            _gt_pil_img = Image.fromarray(_img)        
+            _pred_pil_img = Image.fromarray(_img)
+            
+            gt_box = metric['per_sample'][0]['gt_bboxes']
+            pred_box = metric['per_sample'][0]['det_bboxes']
+            
+            gt_draw = ImageDraw.Draw(_gt_pil_img)
+            pred_draw = ImageDraw.Draw(_pred_pil_img)
+            
+            for box in gt_box:
+                box = np.array(box).astype(np.int32).tolist()
+                gt_draw.rectangle(box, outline=(255, 0, 0))
+            for box in pred_box:
+                box = np.array(box).astype(np.int32).tolist()
+                pred_draw.rectangle(box, outline=(0, 255, 0))
                 
-                    for i in range(len(gt_score_map)):
-                        pred_bbox = get_bboxes(
-                            extra_info['score_map'][i].detach().cpu().numpy(), 
-                            extra_info['geo_map'][i].detach().cpu().numpy()
-                        )
-                        gt_bbox = get_bboxes(
-                            gt_score_map[i].detach().cpu().numpy(), 
-                            gt_geo_map[i].detach().cpu().numpy()
-                        )
-                        pred_bbox = pred_bbox[:, :8].reshape(-1, 4, 2)
-                        gt_bbox = gt_bbox[:, :8].reshape(-1, 4, 2)
-                        pred_bbox_dict[i] = pred_bbox
-                        gt_bbox_dict[i] = gt_bbox
-                    
-                    metric = calc_deteval_metrics(pred_bbox_dict, gt_bbox_dict)
-                    f1 += metric['total']['hmean']
-                    precision += metric['total']['precision']
-                    recall += metric['total']['recall']
-                    
-                    _img = img[0].detach().cpu().numpy()
-                    _img = np.transpose(_img, (1, 2, 0))
-                    _img = _img * 255
-                    _img = _img.astype(np.uint8)
-                    _gt_pil_img = Image.fromarray(_img)        
-                    _pred_pil_img = Image.fromarray(_img)
-                    
-                    gt_box = metric['per_sample'][0]['gt_bboxes']
-                    pred_box = metric['per_sample'][0]['det_bboxes']
-                    
-                    gt_draw = ImageDraw.Draw(_gt_pil_img)
-                    pred_draw = ImageDraw.Draw(_pred_pil_img)
-                    
-                    for box in gt_box:
-                        box = np.array(box).astype(np.int32).tolist()
-                        gt_draw.rectangle(box, outline=(255, 0, 0))
-                    for box in pred_box:
-                        box = np.array(box).astype(np.int32).tolist()
-                        pred_draw.rectangle(box, outline=(0, 255, 0))
-                        
-                    _gt_pil_img.save(f'./gt.jpg')
-                    _pred_pil_img.save(f'./pred.jpg')
-                    
-                    wb_logger.log(
-                        {
-                            "GT": [wandb.Image(_gt_pil_img, caption="GT")],
-                            "Pred": [wandb.Image(_pred_pil_img, caption="Pred")],
-                        }
-                    )
-                    
-                    pbar.update(1)
-                    val_dict = {
-                        'Valid Cls loss': extra_info['cls_loss'], 'Valid Angle loss': extra_info['angle_loss'],
-                        'Valid IoU loss': extra_info['iou_loss'],
-                    }
-                    pbar.set_postfix(val_dict)
-
-        wb_logger.log(
+            _gt_pil_img.save(f'./gt.jpg')
+            _pred_pil_img.save(f'./pred.jpg')
+            
+            gt_imgs.append(_gt_pil_img)
+            pred_imgs.append(_pred_pil_img)
+            
+            wb_logger.log(
                 {
-                    "Train Loss": epoch_loss / num_train_batches,
-                    "Val Loss": val_epoch_loss / num_val_batches,
-                    "F1_score": f1 / num_val_batches,
-                    "Precision": precision / num_val_batches,
-                    "Recall": recall / num_val_batches,
+                    "valid_cls_loss": extra_info['cls_loss'],
+                    "valid_angle_loss": extra_info['angle_loss'],
+                    "valid_iou_loss": extra_info['iou_loss'],
                 }
             )
-        
+
+        wb_logger.log(
+            {
+                "Train Loss": train_epoch_loss / num_train_batches,
+                "Val Loss": valid_epoch_loss / num_val_batches,
+                "F1_score": f1 / num_val_batches,
+                "Precision": precision / num_val_batches,
+                "Recall": recall / num_val_batches,
+                "GT_imgs": [wandb.Image(x, caption="GT") for x in gt_imgs],
+                "Pred_imgs": [wandb.Image(x, caption="Pred") for x in pred_imgs],
+            }
+        )
+    
         if (epoch+1)%5 == 0:
             inference_main(args, epoch)
 
