@@ -20,6 +20,7 @@ class BaseTransform:
         
         #base transform
         self.funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+        self.funcs.append(A.Normalize(mean=(0.7667397, 0.77095854, 0.7755067), std=(0.18619478, 0.17846268, 0.1717753)))   
         self.funcs.append(A.CLAHE()),
         self.funcs.append(A.ChannelShuffle(p=0.5))
         self.funcs.append(A.MotionBlur(p=0.5))
