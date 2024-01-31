@@ -31,6 +31,8 @@ class BaseTransform:
         self.funcs.append(A.Normalize(mean=(0.7667397, 0.77095854, 0.7755067), std=(0.18619478, 0.17846268, 0.1717753)))
         # self.funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
 
+
+
 class SharpenTransform:
     def __init__(self):
         self.funcs = []
