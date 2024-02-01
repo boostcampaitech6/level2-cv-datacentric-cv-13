@@ -18,7 +18,7 @@ import yaml
 from sklearn.model_selection import train_test_split
 
 from east_dataset import EASTDataset
-from dataset_unfinished import SceneTextDataset
+from dataset_with_wandb import SceneTextDataset
 from model import EAST
 from argparser import Parser
 from augmentation import BaseTransform
