@@ -13,10 +13,9 @@ from tqdm import tqdm
 
 import yaml
 import wandb
-from sklearn.model_selection import train_test_split
 
 from east_dataset import EASTDataset
-from dataset_unfinished import SceneTextDataset, ValSceneTextDataset
+from dataset import SceneTextDataset, CustomSceneTextDataset
 from model import EAST
 from argparser import Parser
 from augmentation import BaseTransform
@@ -24,7 +23,7 @@ from importlib import import_module
 from logger import WeightAndBiasLogger
 from optimizer import CustomOptimizer
 from scheduler import CustomScheduler
-from detect import get_bboxes
+from for_deteval import *
 from deteval import calc_deteval_metrics
 
 import random
@@ -40,41 +39,21 @@ def do_training(
     wb_logger = WeightAndBiasLogger(args, exp_name)
     transform = getattr(import_module("augmentation"), transform)
 
-    image_fnames = sorted(os.listdir(os.path.join(data_dir, 'img/train')))
-    train_fnames, val_fnames = train_test_split(image_fnames, test_size=0.2, random_state=seed)
+    new_data_dir, train_fnames, val_fnames = split_train_val(seed=seed, data_dir=data_dir, test_size=0.2)
 
-    train_dataset = SceneTextDataset(
+    dataset = CustomSceneTextDataset(
+        new_data_dir,
         train_fnames,
-        data_dir,
         split='train',
         image_size=image_size,
         crop_size=input_size,
         ignore_tags=ignore_tags,
         transform = transform
     )
-    
-    train_dataset = EASTDataset(train_dataset)
-
-    num_train_batches = math.ceil(len(train_dataset) / batch_size)
+    dataset = EASTDataset(dataset)
+    num_batches = math.ceil(len(dataset) / batch_size)
     train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers
-    )
-
-    val_dataset = ValSceneTextDataset(
-        val_fnames,
-        data_dir,
-        split='train',
-        image_size=image_size,
-        crop_size=input_size,
-        ignore_tags=ignore_tags,
-    )
-    val_dataset = EASTDataset(val_dataset)
-    num_val_batches = math.ceil(len(val_dataset) / batch_size)
-    val_loader = DataLoader(
-        val_dataset,
+        dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers
@@ -87,9 +66,10 @@ def do_training(
     scheduler = CustomScheduler(sched_hparams)(optimizer, max_epoch, scheduler)
 
     model.train()
+    best_f1_score = 0
     for epoch in range(max_epoch):
-        val_epoch_loss, epoch_loss, epoch_start = 0, 0, time.time()
-        with tqdm(total=num_train_batches) as pbar:
+        epoch_loss, epoch_start = 0, time.time()
+        with tqdm(total=num_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
                 pbar.set_description('[Epoch {}]'.format(epoch + 1))
 
@@ -111,49 +91,52 @@ def do_training(
         scheduler.step()
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
-            epoch_loss / num_train_batches, timedelta(seconds=time.time() - epoch_start)))
+            epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
 
         if (epoch + 1) % save_interval == 0:
-            if not osp.exists(model_dir):
-                os.makedirs(model_dir)
+            if not osp.exists(osp.join(model_dir, exp_name)):
+                os.makedirs(osp.join(model_dir, exp_name))
 
-            ckpt_fpath = osp.join(model_dir, 'latest.pth')
+            ckpt_fpath = osp.join(model_dir, exp_name, 'latest.pth')
             torch.save(model.state_dict(), ckpt_fpath)
         
-        with tqdm(total=num_val_batches) as pbar:
-            with torch.no_grad():
-                for img, gt_score_map, gt_geo_map, roi_mask in val_loader:
-                    pbar.set_description('[Validation Epoch {}]'.format(epoch + 1))
-
-                    loss, extra_info = model.train_step(img, gt_score_map, gt_geo_map, roi_mask)
-
-                    loss_val = loss.item()
-                    val_epoch_loss += loss_val
-
-                    # 실행되지 않습니다!
-                    # pred_bbox = get_bboxes(extra_info['score_map'], extra_info['geo_map'])
-                    # gt_bbox = get_bboxes(gt_score_map, gt_geo_map)
-                    # result = calc_deteval_metrics(pred_bbox, gt_bbox)
-
-                    pbar.update(1)
-                    val_dict = {
-                        'Cls loss': extra_info['cls_loss'], 'Angle loss': extra_info['angle_loss'],
-                        'IoU loss': extra_info['iou_loss']
-                    }
-                    pbar.set_postfix(val_dict)
-
-
         wb_logger.log(
                 {
-                    "Train Loss": epoch_loss / num_train_batches,
-                    "Val Loss": val_epoch_loss / num_val_batches,
-                    # "Hmean": result['total']['hmean'],
-                    # "Precision": result['total']['precision'],
-                    # "Recall": result['total']['recall'],
+                    "Mean Loss": epoch_loss / num_batches,
                 }
             )
+        
+        # validation
 
+        with torch.no_grad():
+            print('Calc_deteval_metrics...')
+                
+            pred_bbox = get_pred_bbox(model, new_data_dir, input_size, batch_size, split='valid')
+            gt_bbox = get_gt_bbox(new_data_dir, val_fnames)
 
+            result = calc_deteval_metrics(pred_bbox, gt_bbox)
+            precision = result['total']['precision']
+            recall = result['total']['recall']
+            f1_score = result['total']['hmean']
+
+            print('F1_score : {:.4f} | Epoch : {}'.format(f1_score, epoch))
+
+            wb_logger.log(
+                {
+                    "Precision" : precision,
+                    "Recall" : recall,
+                    "f1_score" : f1_score
+                }
+            )
+            
+            if best_f1_score < f1_score:
+                if not osp.exists(osp.join(model_dir, exp_name)):
+                    os.makedirs(osp.join(model_dir, exp_name))
+
+                best_ckpt_fpath = osp.join(model_dir, exp_name,'best.pth')
+                torch.save(model.state_dict(), best_ckpt_fpath)
+
+        
 def main(args):
 
     if args.input_size % 32 != 0:
