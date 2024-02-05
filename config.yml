@@ -1,0 +1,47 @@
+config: ./config.yml
+data_dir: ./data/medical
+model_dir: ./results
+batch_size: 8
+max_epoch: 150
+save_interval: 5
+seed: 2024
+output_dir: ./predictions
+transform: BaseTransform
+exp_name: Test
+optimizer: SGD
+
+optim_hparams:
+  SGD:
+    lr: 0.005
+    momentum: 0.9
+    weight_decay: 0.0005
+  Adam:
+    lr: 0.0001
+    beta1: 0.9
+    beta2: 0.999
+    eps: 0.00000001
+    weight_decay: 0
+  AdamW:
+    lr: 0.0001
+    beta1: 0.9
+    beta2: 0.999
+    eps: 0.00000001
+    weight_decay: 0.01
+  Lion:
+    lr: 0.0001
+    beta1: 0.95
+    beta2: 0.98
+    weight_decay: 0.01
+
+scheduler: step
+
+sched_hparams:
+  cyclic:
+    base_lr: 0.0001
+    max_lr: 0.01
+    mode: triangular
+    gamma: 1.0
+  cosine:
+    eta_min: 0
+  step:
+    gamma: 0.1
